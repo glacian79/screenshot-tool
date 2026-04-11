@@ -1,10 +1,20 @@
 import base64
 import glob
 import os
+import time
 
 import anthropic
+import pyautogui
+import pyperclip
 
 from ocr_screenshot import capture_and_ocr
+
+KEY_PATH = r"C:\Users\john.grieve\.claude\API_KEYS\reportgenerator.key"
+
+
+def load_api_key():
+    with open(KEY_PATH, "r", encoding="utf-8") as f:
+        return f.read().strip()
 
 
 def generate_radiology_report():
@@ -37,7 +47,7 @@ def generate_radiology_report():
     with open(region1_path, "rb") as f:
         image_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
-    client = anthropic.Anthropic()
+    client = anthropic.Anthropic(api_key=load_api_key())
     print("\nGenerating radiology report...\n")
 
     report = ""
@@ -47,7 +57,10 @@ def generate_radiology_report():
         thinking={"type": "adaptive"},
         system=(
             "You are an expert radiologist. "
-            "Generate concise, structured radiology reports based on the image and clinical information provided."
+            "Generate a conscise report based on the image and clinical information provided."
+            "Do not list negatives unless responding to the clinical question."
+            "If there is a technical limitation mention it in a short sentence."
+            "Write in paragraphs."
         ),
         messages=[
             {
@@ -65,7 +78,7 @@ def generate_radiology_report():
                         "type": "text",
                         "text": (
                             f"Clinical Information:\n{clinical_text}\n\n"
-                            "Please generate a brief radiology report for this image using the clinical information provided."
+                            "Please generate a brief radiology report for this image using the clinical information provided.  Use the headings CLINICAL INFORMATION and FINDINGS.  Do not add * and # to deliniate headings."
                         ),
                     },
                 ],
@@ -86,6 +99,14 @@ def generate_radiology_report():
         f.write(report)
 
     print(f"\nReport saved: {report_filepath}")
+
+    # Paste report into target window
+    pyperclip.copy(report)
+    pyautogui.click(-1114, 735)
+    time.sleep(0.3)
+    pyautogui.hotkey("ctrl", "a")
+    time.sleep(0.1)
+    pyautogui.hotkey("ctrl", "v")
 
 
 if __name__ == "__main__":
