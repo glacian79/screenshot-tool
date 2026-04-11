@@ -7,7 +7,6 @@ Captures defined screen regions, extracts clinical information via OCR, and gene
 1. **`screenshot.py`** captures two screen regions and saves them as resized PNGs to `~/screenshots/`
 2. **`ocr_screenshot.py`** runs Tesseract OCR on region 2 and extracts the text between `Relevant` and `IMAGING` into `clinicalInformation.txt`
 3. **`radiology_report.py`** sends the region 1 image and clinical information to Claude Opus, streams the report to the terminal, saves it, and pastes it into a target window
-4. **`listener.py`** runs in the background and triggers `radiology_report.py` when a configured hotkey (e.g. a dictaphone button) is pressed
 
 ## Requirements
 
@@ -23,7 +22,7 @@ Captures defined screen regions, extracts clinical information via OCR, and gene
 ### Python dependencies
 
 ```
-pip install Pillow pytesseract anthropic pyautogui pyperclip keyboard
+pip install Pillow pytesseract anthropic pyautogui pyperclip
 ```
 
 | Package | Purpose |
@@ -33,7 +32,6 @@ pip install Pillow pytesseract anthropic pyautogui pyperclip keyboard
 | `anthropic` | Claude API SDK |
 | `pyautogui` | Mouse click and keyboard automation |
 | `pyperclip` | Clipboard access |
-| `keyboard` | Global hotkey listener |
 
 ### Anthropic API key
 
@@ -48,17 +46,6 @@ C:\Users\<user>\.claude\API_KEYS\reportgenerator.key
 
 ```
 python radiology_report.py
-```
-
-### Trigger via a hardware button (e.g. dictaphone)
-
-First identify the key your button sends:
-```
-python detect_key.py
-```
-Press the button, then Ctrl+C. Update `TRIGGER_KEY` in `listener.py` with the reported key name, then start the listener:
-```
-python listener.py
 ```
 
 ## Output
