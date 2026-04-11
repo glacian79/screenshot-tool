@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python screenshot.py)",
+      "Bash(gh auth:*)",
+      "Bash(gh repo:*)",
+      "Bash(python:*)",
+      "Read(//c/Program Files/**)",
+      "Read(//c/Users/john.grieve/**)",
+      "Skill(claude-api)",
+      "Bash(git -C \"C:/Users/john.grieve/projects/screenshot-tool\" status)",
+      "Bash(git -C \"C:/Users/john.grieve/projects/screenshot-tool\" diff)",
+      "Bash(git:*)"
+    ]
+  }
+}
