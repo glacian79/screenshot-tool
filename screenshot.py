@@ -3,7 +3,8 @@ from datetime import datetime
 from PIL import ImageGrab, Image
 
 
-def capture_and_save():
+def capture_and_save(timestamp=None):
+    """Capture both screen regions, save as PNGs, and return (images, filepaths)."""
     # Create output folder in home directory
     home_dir = os.path.expanduser("~")
     output_dir = os.path.join(home_dir, "screenshots")
@@ -16,8 +17,12 @@ def capture_and_save():
         (-1964, 1132, -1328, 1822),   # Region 2: left monitor
     ]
 
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    if timestamp is None:
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
     max_width = 1024
+    images = []
+    filepaths = []
 
     for i, bbox in enumerate(regions, start=1):
         # all_screens=True is required to capture negative-coordinate monitors
@@ -33,6 +38,10 @@ def capture_and_save():
         filepath = os.path.join(output_dir, filename)
         img.save(filepath)
         print(f"Region {i} saved: {filepath}  ({img.width}x{img.height})")
+        images.append(img)
+        filepaths.append(filepath)
+
+    return images, filepaths
 
 
 if __name__ == "__main__":
