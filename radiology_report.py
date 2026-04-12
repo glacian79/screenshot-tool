@@ -43,7 +43,7 @@ def generate_radiology_report():
         print("clinicalInformation.txt is empty")
         return
 
-    # Encode region 1 image as base64
+    # Encode region 1 image as base64 (white page already masked by screenshot.py)
     with open(region1_path, "rb") as f:
         image_data = base64.standard_b64encode(f.read()).decode("utf-8")
 
@@ -53,14 +53,16 @@ def generate_radiology_report():
     report = ""
     with client.messages.stream(
         model="claude-opus-4-6",
-        max_tokens=16000,
+        max_tokens=1024,
         thinking={"type": "adaptive"},
         system=(
-            "You are an expert radiologist. "
-            "Generate a conscise report based on the image and clinical information provided."
-            "Do not list negatives unless responding to the clinical question."
-            "If there is a technical limitation mention it in a short sentence."
-            "Write in paragraphs."
+            "You are an expert radiologist writing ultra-concise ED reports. "
+            "Use plain summary statements only. "
+            "Never enumerate individual negative findings — if something is normal, say so in a single word or short phrase (e.g. 'Lungs clear', 'No fracture identified'). "
+            "Only mention a structure if it is abnormal or directly relevant to the clinical question. "
+            "Do not list what was not seen."            
+            "Do not comment on what projections were provided."
+            "Unless you are very sure there is an abnormality, assume it is normal."
         ),
         messages=[
             {
@@ -78,7 +80,11 @@ def generate_radiology_report():
                         "type": "text",
                         "text": (
                             f"Clinical Information:\n{clinical_text}\n\n"
-                            "Please generate a brief radiology report for this image using the clinical information provided.  Use the headings CLINICAL INFORMATION and FINDINGS.  Do not add * and # to deliniate headings."
+                            "Generate a brief radiology report."
+                            "Add the type of xray to the top of the report in all-caps."
+                            "Use the headings CLINICAL INFORMATION and FINDINGS. Do not add * and # to delineate headings."
+                            "If there is a technical limitation mention it in one sentence."
+                            "Write in short paragraphs."
                         ),
                     },
                 ],
