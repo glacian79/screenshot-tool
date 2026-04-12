@@ -70,8 +70,9 @@ def capture_and_save(timestamp=None):
             new_height = int(img.height * ratio)
             img = img.resize((max_width, new_height), Image.LANCZOS)
 
-        # Grey out white areas and teal UI chrome across all regions
-        img = grey_near_color(img, target_hex="ffffff")
+        # Grey out white areas in region 1 only; grey teal UI chrome in all regions
+        if i == 1:
+            img = grey_near_color(img, target_hex="ffffff")
         img = grey_near_color(img)
 
         filename = f"screenshot_{i}_{timestamp}.png"
