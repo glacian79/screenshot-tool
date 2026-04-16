@@ -83,7 +83,7 @@ def generate_radiology_report():
                             "Generate a brief radiology report."
                             "Add the type of xray to the top of the report in all-caps."
                             "Use the headings CLINICAL INFORMATION and FINDINGS. Do not add * and # to delineate headings."
-                            "If there is a technical limitation mention it in one sentence."
+                            "ignore technical problems.  Ignore the abscence of a lateral projection."
                             "Write in short paragraphs."
                         ),
                     },
