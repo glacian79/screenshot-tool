@@ -1,15 +1,22 @@
 import base64
 import glob
 import os
+import re
 import time
 
 import anthropic
 import pyautogui
 import pyperclip
+import pytesseract
+from PIL import ImageEnhance, ImageGrab
 
 from ocr_screenshot import capture_and_ocr
 
 KEY_PATH = r"C:\Users\john.grieve\.claude\API_KEYS\reportgenerator.key"
+pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
+
+# Screen region containing sex/age, e.g. "[M] [006Y]"
+DEMOG_REGION = (1200, 330, 3400, 540)
 
 
 def load_api_key():
@@ -17,7 +24,87 @@ def load_api_key():
         return f.read().strip()
 
 
+def capture_demographics():
+    """OCR the demographics region and return (sex, age_str) or (None, None)."""
+    img = ImageGrab.grab(bbox=DEMOG_REGION, all_screens=True)
+
+    scale = 3
+    img = img.resize((img.width * scale, img.height * scale))
+    img = ImageEnhance.Contrast(img).enhance(2.0)
+    img = ImageEnhance.Sharpness(img).enhance(2.0)
+
+    screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
+    os.makedirs(screenshots_dir, exist_ok=True)
+    img.save(os.path.join(screenshots_dir, "demographics.png"))
+
+    config = "--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]()| ^abcdefghijklmnopqrstuvwxyz"
+    text = pytesseract.image_to_string(img, config=config)
+
+    print(f"Demographics OCR raw:\n{text}")
+
+    text = text.replace("(", "[").replace(")", "]").replace("L", "[").replace("|", "I").replace("O", "0").replace("o", "0")
+
+    sex_match = re.search(r'\[([MF])\]', text, re.IGNORECASE)
+    age_match = re.search(r'[\[\(](\d{1,3}\s*[DWMY])[\]\)]', text, re.IGNORECASE)
+
+    sex = sex_match.group(1).upper() if sex_match else None
+    age_raw = age_match.group(1).replace(" ", "").upper() if age_match else None
+
+    print(f"Parsed: Sex={sex}, Age={age_raw}")
+
+    return sex, age_raw
+
+
+def format_age(age_raw):
+    """Convert '006Y' -> '6 years old', '025M' -> '25 months old', etc."""
+    m = re.match(r'^(\d+)([DWMY])$', age_raw, re.IGNORECASE)
+    if not m:
+        return age_raw
+    num = int(m.group(1))
+    unit = m.group(2).upper()
+    unit_names = {"Y": "years", "M": "months", "W": "weeks", "D": "days"}
+    return f"{num} {unit_names.get(unit, unit)} old"
+
+
+def inject_demographics(report_text, sex, age_raw):
+    """Prepend sex and age to the content of the HISTORY section."""
+    if not sex and not age_raw:
+        return report_text
+
+    parts = []
+    if sex:
+        parts.append("Male" if sex == "M" else "Female")
+    if age_raw:
+        parts.append(format_age(age_raw))
+    demo_str = ", ".join(parts)
+
+    injected = re.sub(
+        r'(HISTORY\s*:[ \t]*\n?)',
+        lambda m: m.group(0) + demo_str + ". ",
+        report_text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+
+    if injected == report_text:
+        injected = f"Patient: {demo_str}\n\n{report_text}"
+
+    return injected
+
+
 def generate_radiology_report():
+    # Capture demographics before the screen changes
+    sex, age_raw = capture_demographics()
+    if sex or age_raw:
+        parts = []
+        if sex:
+            parts.append("Male" if sex == "M" else "Female")
+        if age_raw:
+            parts.append(format_age(age_raw))
+        print(f"Demographics: {', '.join(parts)}")
+    else:
+        print("Demographics: not found")
+
     # Capture screenshots and extract clinical information
     capture_and_ocr()
 
@@ -42,6 +129,15 @@ def generate_radiology_report():
     if not clinical_text:
         print("clinicalInformation.txt is empty")
         return
+
+    # Prepend demographics to clinical text
+    if sex or age_raw:
+        parts = []
+        if sex:
+            parts.append("Male" if sex == "M" else "Female")
+        if age_raw:
+            parts.append(format_age(age_raw))
+        clinical_text = ", ".join(parts) + ". " + clinical_text
 
     # Encode region 1 image as base64 (white page already masked by screenshot.py)
     with open(region1_path, "rb") as f:

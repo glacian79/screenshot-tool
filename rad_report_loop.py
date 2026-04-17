@@ -4,7 +4,7 @@ import time
 
 import pyautogui
 
-from radiology_report import generate_radiology_report
+from generate_report import generate_radiology_report
 
 SCREENSHOTS_DIR = os.path.join(os.path.expanduser("~"), "screenshots")
 
