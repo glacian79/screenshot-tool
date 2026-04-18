@@ -8,15 +8,16 @@ import anthropic
 import pyautogui
 import pyperclip
 import pytesseract
-from PIL import ImageEnhance, ImageGrab
+from PIL import ImageGrab
 
 from ocr_screenshot import capture_and_ocr
+from screenshot import mask_color_for_ocr
 
 KEY_PATH = r"C:\Users\john.grieve\.claude\API_KEYS\reportgenerator.key"
 pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
 
 # Screen region containing sex/age, e.g. "[M] [006Y]"
-DEMOG_REGION = (1200, 330, 3400, 540)
+DEMOG_REGION = (1200, 330, 3820, 570)
 
 
 def load_api_key():
@@ -30,22 +31,26 @@ def capture_demographics():
 
     scale = 3
     img = img.resize((img.width * scale, img.height * scale))
-    img = ImageEnhance.Contrast(img).enhance(2.0)
-    img = ImageEnhance.Sharpness(img).enhance(2.0)
+    masked = mask_color_for_ocr(img)
 
     screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
     os.makedirs(screenshots_dir, exist_ok=True)
-    img.save(os.path.join(screenshots_dir, "demographics.png"))
+    masked.save(os.path.join(screenshots_dir, "demographics.png"))
 
     config = "--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]()| ^abcdefghijklmnopqrstuvwxyz"
-    text = pytesseract.image_to_string(img, config=config)
+    text = pytesseract.image_to_string(masked, config=config)
 
     print(f"Demographics OCR raw:\n{text}")
 
-    text = text.replace("(", "[").replace(")", "]").replace("L", "[").replace("|", "I").replace("O", "0").replace("o", "0")
+    text = text.replace("(", "[").replace(")", "]").replace("L", "[").replace("|", "]").replace("O", "0").replace("o", "0")
 
     sex_match = re.search(r'\[([MF])\]', text, re.IGNORECASE)
+    if not sex_match:
+        sex_match = re.search(r'\b([MF])\b(?=\s+\d{1,3}[DWMY]\b)', text, re.IGNORECASE)
+
     age_match = re.search(r'[\[\(](\d{1,3}\s*[DWMY])[\]\)]', text, re.IGNORECASE)
+    if not age_match:
+        age_match = re.search(r'\b[MF]\s+(\d{1,3}[DWMY])\b', text, re.IGNORECASE)
 
     sex = sex_match.group(1).upper() if sex_match else None
     age_raw = age_match.group(1).replace(" ", "").upper() if age_match else None
@@ -159,6 +164,7 @@ def generate_radiology_report():
             "Do not list what was not seen."            
             "Do not comment on what projections were provided."
             "Unless you are very sure there is an abnormality, assume it is normal."
+            "If you are reporting a pelvis or hip x-ray for query fracture use the report: No fracture or dislocation.  The pelvic viscera outline normally"
         ),
         messages=[
             {

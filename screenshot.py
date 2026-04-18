@@ -37,6 +37,32 @@ def grey_near_color(img, target_hex="009ccc", half=10, tolerance=10):
     return Image.fromarray(result)
 
 
+def mask_color_for_ocr(img, target_hex="009ccc", tolerance=40):
+    """Return a black-on-white binary image keeping only pixels near target_hex, for OCR."""
+    r, g, b = int(target_hex[0:2], 16), int(target_hex[2:4], 16), int(target_hex[4:6], 16)
+    arr = np.array(img.convert("RGB"))
+    diff = np.abs(arr.astype(int) - np.array([r, g, b]))
+    mask = np.all(diff <= tolerance, axis=2)
+    result = np.full_like(arr, 255)
+    result[mask] = 0
+    return Image.fromarray(result)
+
+
+def crop_to_content(img, grey=(128, 128, 128)):
+    """Crop uniform grey borders, keeping the bounding box of non-grey pixels."""
+    arr = np.array(img.convert("RGB"))
+    mask = ~np.all(arr == grey, axis=2)
+    if not mask.any():
+        return img
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+    top, bottom = np.where(rows)[0][[0, -1]]
+    left, right = np.where(cols)[0][[0, -1]]
+    cropped = img.crop((left, top, right + 1, bottom + 1))
+    print(f"Cropped grey borders: {img.width}x{img.height} -> {cropped.width}x{cropped.height}")
+    return cropped
+
+
 def capture_and_save(timestamp=None):
     """Capture both screen regions, save as PNGs, and return (images, filepaths)."""
     # Create output folder in home directory
@@ -47,10 +73,11 @@ def capture_and_save(timestamp=None):
     # Regions defined as (left, top, right, bottom)
     # Region 2 uses negative x coordinates (monitor to the left of primary)
     regions = [
-        (15, 282, 3458, 2076),        # Region 1: main area
-        (-1964, 1132, -1328, 1822),   # Region 2: left monitor
-        (50, 1100, 1500, 1600),      # Region 3: clinical information fallback
-        (2320, 960, 3450, 1560),      # Region 4: clinical information fallback
+        (30, 300, 3800, 2100),        # Region 1: main area
+        (2600, 1000, 3800, 1500),     # Region 2: clinical info, right of main (1st OCR attempt)
+        (1300, 1000, 2600, 1500),     # Region 3: clinical info, centre of main (2nd OCR attempt)
+        (50, 1000, 1300, 1500),       # Region 4: clinical info, left of main (3rd OCR attempt)
+        (-2000, 1130, -1300, 1800),   # Region 5: clinical info, left monitor (4th OCR attempt)
     ]
 
     if timestamp is None:
@@ -74,6 +101,12 @@ def capture_and_save(timestamp=None):
         if i == 1:
             img = grey_near_color(img, target_hex="ffffff")
         img = grey_near_color(img)
+
+        if i == 1:
+            full_filepath = os.path.join(output_dir, f"screenshot_1_full_{timestamp}.png")
+            img.save(full_filepath)
+            print(f"Region 1 full saved: {full_filepath}  ({img.width}x{img.height})")
+            img = crop_to_content(img)
 
         filename = f"screenshot_{i}_{timestamp}.png"
         filepath = os.path.join(output_dir, filename)

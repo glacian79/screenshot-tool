@@ -10,6 +10,7 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Pro
 
 KEY_PATH = r"C:\Users\john.grieve\.claude\API_KEYS\reportgenerator.key"
 
+from arrange_windows import arrange
 from screenshot import capture_and_save
 
 
@@ -19,6 +20,7 @@ def load_api_key():
 
 
 def capture_and_ocr():
+    arrange()
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     # Capture all regions using shared timestamp so filenames align
@@ -31,7 +33,7 @@ def capture_and_ocr():
     source = None
     best_index, best_label, best_text = 1, "region2", ""
 
-    for region_index, label in [(1, "region2"), (2, "region3"), (3, "region4")]:
+    for region_index, label in [(1, "region2"), (2, "region3"), (3, "region4"), (4, "region5")]:
         text = pytesseract.image_to_string(images[region_index])
 
         txt_filepath = os.path.join(output_dir, f"ocr_{label}_{timestamp}.txt")
@@ -46,15 +48,15 @@ def capture_and_ocr():
             source = label
             break
 
-        next_regions = {"region2": "region3", "region3": "region4"}
+        next_regions = {"region2": "region3", "region3": "region4", "region4": "region5"}
         if label in next_regions:
             print(f"No text found in {label}, trying {next_regions[label]}...")
 
     # Extract clinical information using region-appropriate delimiters
     match = None
-    if source == "region2":
+    if source == "region5":
         match = re.search(r"Relevant(.*?)IMAGING", best_text, re.DOTALL | re.IGNORECASE)
-    elif source in ("region3", "region4"):
+    elif source in ("region2", "region3", "region4"):
         match = re.search(r"order/details:(.*?)Exam Remark", best_text, re.DOTALL | re.IGNORECASE)
 
     if match:
