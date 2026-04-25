@@ -55,9 +55,12 @@ def capture_and_ocr():
     # Extract clinical information using region-appropriate delimiters
     match = None
     if source == "region5":
-        match = re.search(r"Relevant(.*?)IMAGING", best_text, re.DOTALL | re.IGNORECASE)
+        match = re.search(r"Relevant(.*?)\n\n", best_text, re.DOTALL | re.IGNORECASE)
     elif source in ("region2", "region3", "region4"):
-        match = re.search(r"order/details:(.*?)Exam Remark", best_text, re.DOTALL | re.IGNORECASE)
+        best_text = re.sub(r"(?i)(?<=order/details:)\n\n", " ", best_text)
+        with open(os.path.join(output_dir, f"ocr_{best_label}_{timestamp}.txt"), "w", encoding="utf-8") as f:
+            f.write(best_text)
+        match = re.search(r"order/details:(.*?)\n\n", best_text, re.DOTALL | re.IGNORECASE)
 
     if match:
         clinical_text = match.group(1).strip()

@@ -4,7 +4,7 @@ import numpy as np
 from PIL import ImageGrab, Image
 
 
-def grey_near_color(img, target_hex="009ccc", half=10, tolerance=10):
+def grey_near_color(img, target_hex="009ccc", half=10, tolerance=6):
     """Turn grey any pixel matching target_hex and a box extending half pixels in each direction."""
     r = int(target_hex[0:2], 16)
     g = int(target_hex[2:4], 16)
@@ -46,6 +46,51 @@ def mask_color_for_ocr(img, target_hex="009ccc", tolerance=40):
     result = np.full_like(arr, 255)
     result[mask] = 0
     return Image.fromarray(result)
+
+
+def crop_black_borders(img, threshold=15, block_size=100):
+    """Crop near-black borders using block averaging to ignore thin artifacts like yellow lines."""
+    arr = np.array(img.convert("RGB"))
+    h, w = arr.shape[:2]
+
+    # Downsample by averaging block_size x block_size blocks
+    # Trim dimensions to be divisible by block_size
+    h_trim = (h // block_size) * block_size
+    w_trim = (w // block_size) * block_size
+    trimmed = arr[:h_trim, :w_trim]
+
+    # Reshape into blocks and average each block
+    blocks = trimmed.reshape(h // block_size, block_size, w // block_size, block_size, 3)
+    block_avg = blocks.mean(axis=(1, 3))  # shape: (h//block_size, w//block_size, 3)
+
+    # Apply threshold to averaged blocks
+    mask = np.any(block_avg > threshold, axis=2)
+
+    if not mask.any():
+        return img
+
+    rows = np.any(mask, axis=1)
+    cols = np.any(mask, axis=0)
+
+    if not rows.any() or not cols.any():
+        return img
+
+    top_block, bottom_block = np.where(rows)[0][[0, -1]]
+    left_block, right_block = np.where(cols)[0][[0, -1]]
+
+    # Convert block coordinates back to pixel coordinates
+    top    = top_block    * block_size
+    left   = left_block   * block_size
+    bottom = (bottom_block + 1) * block_size
+    right  = (right_block  + 1) * block_size
+
+    # Clamp to actual image dimensions
+    bottom = min(bottom, h)
+    right  = min(right, w)
+
+    cropped = img.crop((left, top, right, bottom))
+    print(f"Cropped black borders: {img.width}x{img.height} -> {cropped.width}x{cropped.height}")
+    return cropped
 
 
 def crop_to_content(img, grey=(128, 128, 128)):

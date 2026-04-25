@@ -9,7 +9,7 @@ import pyperclip
 from ocr_screenshot import capture_and_ocr, load_api_key
 
 
-def populate_clinical_details():
+def populate_clinical_information():
     capture_and_ocr()
 
     screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
@@ -53,4 +53,4 @@ def populate_clinical_details():
 
 
 if __name__ == "__main__":
-    populate_clinical_details()
+    populate_clinical_information()

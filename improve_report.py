@@ -39,7 +39,7 @@ def improve_report():
         print("Demographics: not found")
 
     # Click into the report field and copy all text
-    pyautogui.click(-1070, 735)
+    pyautogui.click(-870, 960)
     time.sleep(0.3)
     pyautogui.hotkey("ctrl", "a")
     time.sleep(0.1)
@@ -84,7 +84,7 @@ def improve_report():
 
     # Paste improved report back into the field
     pyperclip.copy(improved)
-    pyautogui.click(-1070, 735)
+    pyautogui.click(-870, 960)
     time.sleep(0.3)
     pyautogui.hotkey("ctrl", "a")
     time.sleep(0.1)

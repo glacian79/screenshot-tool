@@ -1,15 +1,12 @@
 import ctypes
-import glob
 import msvcrt
-import os
 import sys
 import time
 
 import pyautogui
 
-from generate_report import generate_radiology_report
-
-SCREENSHOTS_DIR = os.path.join(os.path.expanduser("~"), "screenshots")
+from populate_clinical_information import populate_clinical_information
+from rad_report_loop import mouse_scroll_down
 
 user32 = ctypes.windll.user32
 kernel32 = ctypes.windll.kernel32
@@ -23,12 +20,12 @@ def focus_console():
 
 def countdown_with_pause(seconds):
     focus_console()
-    print("check hanging protocol. press space bar to pause")
+    print("Check hanging protocol. Press space bar to pause.")
     end = time.time() + seconds
     while time.time() < end:
         if msvcrt.kbhit():
             if msvcrt.getch() == b' ':
-                print("press space bar to resume")
+                print("Paused. Press space bar to resume.")
                 while True:
                     if msvcrt.kbhit() and msvcrt.getch() == b' ':
                         break
@@ -36,46 +33,36 @@ def countdown_with_pause(seconds):
                 end = time.time() + (end - time.time())
         time.sleep(0.05)
 
-def mouse_scroll_down(total_clicks):
-    for i in range(total_clicks):
-        pyautogui.scroll(-1)
-        time.sleep(0.1)  # adjust this delay to control speed
 
 if __name__ == "__main__":
     if len(sys.argv) > 1:
         try:
             max_runs = int(sys.argv[1])
         except ValueError:
-            print(f"Usage: python rad_report_loop.py [count]")
+            print(f"Usage: python populate_clinical_information_loop.py [count]")
             sys.exit(1)
     else:
         max_runs = None  # infinite
 
     runs = 0
     while max_runs is None or runs < max_runs:
-        try:
-            before = set(glob.glob(os.path.join(SCREENSHOTS_DIR, "radiology_report_*.txt")))
+        try:            
             # Move mouse to specified coordinates
             pyautogui.moveTo(3220, 1670, duration=0.1)  # duration=0.5 for smooth movement
             
             # Scroll down - negative value scrolls down
             # Approximately 5-10 clicks = half turn of scroll wheel
-            mouse_scroll_down(6)  # number of clicks
-            
+            mouse_scroll_down(6)  # number of clicks            
+           
             countdown_with_pause(2)
-            generate_radiology_report()
-            runs += 1
-
-            after = set(glob.glob(os.path.join(SCREENSHOTS_DIR, "radiology_report_*.txt")))
-            if not (after - before):
-                print("No clinical information found — stopping.")
-                break
+            populate_clinical_information()
+            runs += 1           
 
             if max_runs is None or runs < max_runs:
-                pyautogui.press("f9")
+                pyautogui.press("f9") # save as draft.
                 remaining = f"{max_runs - runs} remaining" if max_runs else "Ctrl+C to stop"
                 print(f"\n{remaining}...")
-                time.sleep(6)  # Wait for images to hang
+                time.sleep(6)  # Wait for next images to hang
 
         except KeyboardInterrupt:
             print("\nStopped.")
