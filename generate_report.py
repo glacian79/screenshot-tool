@@ -1,63 +1,23 @@
 import base64
-import glob
+import json
 import os
 import re
 import time
+from datetime import datetime
 
 import anthropic
 import pyautogui
 import pyperclip
-import pytesseract
-from PIL import Image, ImageGrab
 
-from ocr_screenshot import capture_and_ocr
-from screenshot import crop_black_borders, mask_color_for_ocr
+from capture_workflow import run_capture_workflow
+from check_priors import check_priors
 
 KEY_PATH = r"C:\Users\john.grieve\.claude\API_KEYS\reportgenerator.key"
-pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"
-
-# Screen region containing sex/age, e.g. "[M] [006Y]"
-DEMOG_REGION = (900, 400, 3820, 570)
 
 
 def load_api_key():
     with open(KEY_PATH, "r", encoding="utf-8") as f:
         return f.read().strip()
-
-
-def capture_demographics():
-    """OCR the demographics region and return (sex, age_str) or (None, None)."""
-    img = ImageGrab.grab(bbox=DEMOG_REGION, all_screens=True)
-
-    scale = 3
-    img = img.resize((img.width * scale, img.height * scale))
-    masked = mask_color_for_ocr(img)
-
-    screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
-    os.makedirs(screenshots_dir, exist_ok=True)
-    masked.save(os.path.join(screenshots_dir, "demographics.png"))
-
-    config = "--psm 6 --oem 3 -c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789[]()| ^abcdefghijklmnopqrstuvwxyz"
-    text = pytesseract.image_to_string(masked, config=config)
-
-    print(f"Demographics OCR raw:\n{text}")
-
-    text = text.replace("(", "[").replace(")", "]").replace("L", "[").replace("|", "]").replace("O", "0").replace("o", "0")
-
-    sex_match = re.search(r'\[([MF])\]', text, re.IGNORECASE)
-    if not sex_match:
-        sex_match = re.search(r'\b([MF])\b(?=\s+\d{1,3}[DWMY]\b)', text, re.IGNORECASE)
-
-    age_match = re.search(r'[\[\(](\d{1,3}\s*[DWMY])[\]\)]', text, re.IGNORECASE)
-    if not age_match:
-        age_match = re.search(r'\b[MF]\s+(\d{1,3}[DWMY])\b', text, re.IGNORECASE)
-
-    sex = sex_match.group(1).upper() if sex_match else None
-    age_raw = age_match.group(1).replace(" ", "").upper() if age_match else None
-
-    print(f"Parsed: Sex={sex}, Age={age_raw}")
-
-    return sex, age_raw
 
 
 def format_age(age_raw):
@@ -97,54 +57,61 @@ def inject_demographics(report_text, sex, age_raw):
     return injected
 
 
+def find_matching_prior(title):
+    """Search prior*.txt files for the one whose first all-caps line matches title."""
+    if not title:
+        return None
+    screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
+    import glob as _glob
+    prior_files = sorted(_glob.glob(os.path.join(screenshots_dir, "prior*.txt")))
+    for path in prior_files:
+        with open(path, "r", encoding="utf-8") as f:
+            text = f.read()
+        for line in text.splitlines():
+            line = line.strip()
+            if line and line == line.upper() and any(c.isalpha() for c in line):
+                if line.upper() == title.upper():
+                    print(f"Matching prior found: {os.path.basename(path)} — '{line}'")
+                    return text
+                break  # only check the first all-caps line per file
+    print("No matching prior found")
+    return None
+
+
+def _is_mostly_white(path, threshold=220, white_fraction=0.75):
+    """Return True if more than white_fraction of pixels are brighter than threshold."""
+    from PIL import Image as _Image
+    img = _Image.open(path).convert("L")
+    pixels = img.getdata()
+    white = sum(1 for p in pixels if p > threshold)
+    return white / len(pixels) > white_fraction
+
+
 def generate_radiology_report():
-    # Capture demographics before the screen changes
-    sex, age_raw = capture_demographics()
+    screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
+    xray_paths, clinical_text, sex, age_raw = run_capture_workflow()
+
     if sex or age_raw:
         parts = []
         if sex:
             parts.append("Male" if sex == "M" else "Female")
         if age_raw:
             parts.append(format_age(age_raw))
-        print(f"Demographics: {', '.join(parts)}")
+        demo_str = ", ".join(parts)
+        print(f"Demographics: {demo_str}")
+        clinical_text = demo_str + ". " + (clinical_text or "")
     else:
         print("Demographics: not found")
 
-    # Capture screenshots and extract clinical information
-    capture_and_ocr()
-
-    screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
-
-    # Find the most recently saved region 1 screenshot
-    matches = sorted(glob.glob(os.path.join(screenshots_dir, "screenshot_1_*.png")))
-    if not matches:
-        print("No region 1 screenshot found")
-        return
-    region1_path = matches[-1]
-
-    # Read clinical information
-    clinical_filepath = os.path.join(screenshots_dir, "clinicalInformation.txt")
-    if not os.path.exists(clinical_filepath):
-        print("clinicalInformation.txt not found — no text between 'Relevant' and 'IMAGING'")
+    if not clinical_text or not clinical_text.strip():
+        print("No clinical information found")
         return
 
-    with open(clinical_filepath, "r", encoding="utf-8") as f:
-        clinical_text = f.read().strip()
-
-    if not clinical_text:
-        print("clinicalInformation.txt is empty")
+    if not xray_paths:
+        print("No xray images found")
         return
 
-    # Prepend demographics to clinical text
-    if sex or age_raw:
-        parts = []
-        if sex:
-            parts.append("Male" if sex == "M" else "Female")
-        if age_raw:
-            parts.append(format_age(age_raw))
-        clinical_text = ", ".join(parts) + ". " + clinical_text
-
-    # Extract title from existing report (first all-caps line)
+    # Extract title from existing report (first line)
     pyautogui.click(-1114, 735)
     time.sleep(0.3)
     pyautogui.hotkey("ctrl", "a")
@@ -165,61 +132,90 @@ def generate_radiology_report():
     else:
         print("Title: not found")
 
-    # Crop black borders and save ready-to-send image
-    xray_img = Image.open(region1_path)
-    xray_img = crop_black_borders(xray_img)
-    xray_ready_path = os.path.join(screenshots_dir, "xray_ready_to_send.png")
-    xray_img.save(xray_ready_path)
-    print(f"Saved: {xray_ready_path}")
+    check_priors()
+    prior_text = find_matching_prior(title)
 
-    with open(xray_ready_path, "rb") as f:
-        image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+    # Filter out mostly-white images (scanned request forms)
+    filtered_paths = []
+    for path in xray_paths:
+        if _is_mostly_white(path):
+            request_path = os.path.join(screenshots_dir, "request.png")
+            os.replace(path, request_path)
+            print(f"{os.path.basename(path)} is mostly white — renamed to request.png")
+        else:
+            filtered_paths.append(path)
+    xray_paths = filtered_paths
+
+    if not xray_paths:
+        print("No xray images remain after filtering")
+        return
+
+    # Build content: one image block per xray, then the text prompt
+    content = []
+    for path in xray_paths:
+        with open(path, "rb") as f:
+            image_data = base64.standard_b64encode(f.read()).decode("utf-8")
+        content.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": "image/png",
+                "data": image_data,
+            },
+        })
+    prior_section = f"Prior report:\n{prior_text}\n\n" if prior_text else ""
+    llm_text = (
+        f"{prior_section}"
+        f"Clinical Information:\n{clinical_text}\n\n"
+        "Generate a brief radiology report."
+        "Use the headings CLINICAL INFORMATION and FINDINGS. Do not add * and # to delineate headings."
+        "ignore technical problems.  Ignore the abscence of a lateral projection."
+        "Write in short paragraphs."
+    )
+    content.append({"type": "text", "text": llm_text})
+
+    model       = "claude-opus-4-6"
+    max_tokens  = 1024
+    thinking    = {"type": "adaptive"}
+    system      = (
+        "You are an expert radiologist writing ultra-concise ED reports. "
+        "Use plain summary statements only. "
+        "Never enumerate individual negative findings — if something is normal, say so in a single word or short phrase (e.g. 'Lungs clear', 'No fracture identified'). "
+        "Only mention a structure if it is abnormal or directly relevant to the clinical question. "
+        "Do not list what was not seen."
+        "Do not comment on central venous catheters."
+        "If the heart size is normal, say \"cardiomediastinal silhouette outlines normally\""
+        "Do not comment on what projections were provided."
+        "Unless you are very sure there is an abnormality, assume it is normal."
+        "If you are reporting a pelvis or hip x-ray for query fracture use the report: No fracture or dislocation.  The pelvic viscera outline normally"
+        "If a prior report is provided and is the same type of examination, begin the FINDINGS section with 'Images are compared with the prior examination on [date from prior].' "
+        "If no prior report is provided, or it is not the same type of examination, begin the FINDINGS section with 'No prior x-rays available for comparison.'"
+    )
+
+    # Save full request for inspection (images replaced with filename placeholders)
+    content_log = [
+        {"type": "image", "file": os.path.basename(p)} for p in xray_paths
+    ] + [{"type": "text", "text": llm_text}]
+    request_log = {
+        "model": model,
+        "max_tokens": max_tokens,
+        "thinking": thinking,
+        "system": system,
+        "messages": [{"role": "user", "content": content_log}],
+    }
+    with open(os.path.join(screenshots_dir, "llm_request.json"), "w", encoding="utf-8") as f:
+        json.dump(request_log, f, indent=2)
 
     client = anthropic.Anthropic(api_key=load_api_key())
     print("\nGenerating radiology report...\n")
 
     report = ""
     with client.messages.stream(
-        model="claude-opus-4-6",
-        max_tokens=1024,
-        thinking={"type": "adaptive"},
-        system=(
-            "You are an expert radiologist writing ultra-concise ED reports. "
-            "Use plain summary statements only. "
-            "Never enumerate individual negative findings — if something is normal, say so in a single word or short phrase (e.g. 'Lungs clear', 'No fracture identified'). "
-            "Only mention a structure if it is abnormal or directly relevant to the clinical question. "
-            "Do not list what was not seen."
-            "Do not comment on central venous catheters."
-            "If the heart size is normal, say \"cardiomediastinal silhouette outlines normally\""
-            "Do not comment on what projections were provided."
-            "Unless you are very sure there is an abnormality, assume it is normal."
-            "If you are reporting a pelvis or hip x-ray for query fracture use the report: No fracture or dislocation.  The pelvic viscera outline normally"
-        ),
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": "image/png",
-                            "data": image_data,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            f"Clinical Information:\n{clinical_text}\n\n"
-                            "Generate a brief radiology report."
-                            "Use the headings CLINICAL INFORMATION and FINDINGS. Do not add * and # to delineate headings."
-                            "ignore technical problems.  Ignore the abscence of a lateral projection."
-                            "Write in short paragraphs."
-                        ),
-                    },
-                ],
-            }
-        ],
+        model=model,
+        max_tokens=max_tokens,
+        thinking=thinking,
+        system=system,
+        messages=[{"role": "user", "content": content}],
     ) as stream:
         for text in stream.text_stream:
             print(text, end="", flush=True)
@@ -230,16 +226,22 @@ def generate_radiology_report():
     if title:
         report = f"{title}\n\n{report}"
 
-    # Save the report alongside the screenshots
-    from datetime import datetime
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Save report then move everything into a timestamped subfolder
     report_filepath = os.path.join(screenshots_dir, f"radiology_report_{timestamp}.txt")
     with open(report_filepath, "w", encoding="utf-8") as f:
         f.write(report)
-
     print(f"\nReport saved: {report_filepath}")
 
-    # Paste report into target window
+    archive_dir = os.path.join(screenshots_dir, "archive", timestamp)
+    os.makedirs(archive_dir, exist_ok=True)
+    for fname in os.listdir(screenshots_dir):
+        src = os.path.join(screenshots_dir, fname)
+        if os.path.isfile(src):
+            os.replace(src, os.path.join(archive_dir, fname))
+    print(f"Files archived to: {archive_dir}")
+
     pyperclip.copy(report)
     pyautogui.click(-1114, 735)
     time.sleep(0.4)

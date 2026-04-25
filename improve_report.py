@@ -4,8 +4,8 @@ import anthropic
 import pyautogui
 import pyperclip
 
+from capture_workflow import capture_demographics
 from generate_report import (
-    capture_demographics,
     format_age,
     inject_demographics,
     load_api_key,
