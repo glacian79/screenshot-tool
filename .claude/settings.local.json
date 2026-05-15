@@ -10,7 +10,14 @@
       "Skill(claude-api)",
       "Bash(git -C \"C:/Users/john.grieve/projects/screenshot-tool\" status)",
       "Bash(git -C \"C:/Users/john.grieve/projects/screenshot-tool\" diff)",
-      "Bash(git:*)"
+      "Bash(git:*)",
+      "WebFetch(domain:pop-os.local)",
+      "Bash(curl *)",
+      "WebFetch(domain:medgemma.local)",
+      "PowerShell(python -c \"import huggingface_hub; print\\(huggingface_hub.__version__\\)\")",
+      "PowerShell(python medgemma_report.py)",
+      "PowerShell(python -c \"from capture_workflow import capture_accession_number; capture_accession_number\\(\\)\")",
+      "PowerShell(python run_medgemma_report_flow.py)"
     ]
   }
 }

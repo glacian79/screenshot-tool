@@ -14,7 +14,8 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Pro
 
 SCREENSHOTS_DIR = os.path.join(os.path.expanduser("~"), "screenshots")
 
-DEMOG_REGION  = (800, 300, 1270, 500)
+DEMOG_REGION   = (800, 300, 1270, 500)
+ACC_REGION     = (14, 302, 550, 530)
 VIEWER_REGION = (20, 300, 1270, 2060)
 CLARIO_REGION = (-2100, 1100, -1210, 1960)
 
@@ -50,14 +51,39 @@ def capture_demographics():
     if not sex_match:
         sex_match = re.search(r'\b([MF])\b(?=\s+\d{1,3}[DWMY]\b)', text, re.IGNORECASE)
 
-    age_match = re.search(r'[\[\(](\d{1,3}\s*[DWMY])[\]\)]', text, re.IGNORECASE)
+    age_match = re.search(r'[\[\(](\d{1,4}\s*[DWMY])[\]\)]', text, re.IGNORECASE)
     if not age_match:
-        age_match = re.search(r'\b[MF]\s+(\d{1,3}[DWMY])\b', text, re.IGNORECASE)
+        age_match = re.search(r'\b[MF]\s+(\d{1,4}[DWMY])\b', text, re.IGNORECASE)
 
     sex = sex_match.group(1).upper() if sex_match else None
     age_raw = age_match.group(1).replace(" ", "").upper() if age_match else None
+    if age_raw:
+        # Strip leading zeros added by O→0 substitution (e.g. "0033Y" → "33Y")
+        age_raw = re.sub(r'^0+(\d)', r'\1', age_raw)
     print(f"Parsed: Sex={sex}, Age={age_raw}")
     return sex, age_raw
+
+
+def capture_accession_number():
+    """OCR the accession number region and save it to accessionNo.txt. Returns the accession string or None."""
+    img = ImageGrab.grab(bbox=ACC_REGION, all_screens=True)
+    scale = 3
+    img = img.resize((img.width * scale, img.height * scale))
+    masked = mask_color_for_ocr(img)
+    os.makedirs(SCREENSHOTS_DIR, exist_ok=True)
+    masked.save(os.path.join(SCREENSHOTS_DIR, "accession.png"))
+
+    config = "--psm 6 --oem 3"
+    text = pytesseract.image_to_string(masked, config=config)
+
+    match = re.search(r'Acc\s*#\s*([^\n]+)', text, re.IGNORECASE)
+    accession = re.sub(r'\s+', '', match.group(1)) if match else None
+    print(f"Accession number: {accession}")
+
+    acc_path = os.path.join(SCREENSHOTS_DIR, "accessionNo.txt")
+    with open(acc_path, "w", encoding="utf-8") as f:
+        f.write(f"{accession if accession else ''}\n\n--- OCR raw ---\n{text}")
+    return accession
 
 
 def _images_identical(img_a, img_b):
@@ -83,10 +109,21 @@ def acquire_images():
         for f in glob.glob(os.path.join(SCREENSHOTS_DIR, pattern)):
             os.remove(f)
 
+    # Wait for the first image to load — retry up to 3 times (4s each) if all black
+    for attempt in range(1, 4):
+        first_img = ImageGrab.grab(bbox=VIEWER_REGION, all_screens=True)
+        pixels = list(first_img.convert("L").getdata())
+        if sum(1 for p in pixels if p < 10) / len(pixels) < 0.95:
+            break
+        print(f"First image appears black (attempt {attempt}/3), waiting 4s...")
+        time.sleep(4)
+    else:
+        raise RuntimeError("Viewer image still black after 12 seconds — image may not have loaded")
+
     raw_paths = []
     prev_img = None
 
-    for i in range(1, 9):
+    for i in range(1, 13):
         img = ImageGrab.grab(bbox=VIEWER_REGION, all_screens=True)
         if prev_img is not None and _images_identical(img, prev_img):
             print(f"Frame {i} identical to previous — end of stack")
@@ -142,10 +179,15 @@ def acquire_images():
     if clinical_text is None:
         print("No clinical info in viewer images — trying Clario region...")
         clario_img = ImageGrab.grab(bbox=CLARIO_REGION, all_screens=True)
+        clario_img_ocr = clario_img.resize((clario_img.width * 4, clario_img.height * 4), Image.LANCZOS)
         clario_path = os.path.join(SCREENSHOTS_DIR, "clario_clinical_info.png")
-        clario_img.save(clario_path)
-        clario_text = pytesseract.image_to_string(clario_img)
-        clinical_text = _extract_clinical_from_ocr(clario_text) or clario_text.strip() or None
+        clario_img_ocr.save(clario_path)
+        clario_text = pytesseract.image_to_string(clario_img_ocr)
+        _clario_matches = re.findall(r"clinical information:(.*?)\n\n", clario_text, re.DOTALL | re.IGNORECASE)
+        if _clario_matches:
+            clinical_text = "  ".join(m.strip() for m in _clario_matches if m.strip()) or None
+        else:
+            clinical_text = clario_text.strip() or None
         if clinical_text:
             print("Clinical info found in Clario region")
         else:
@@ -165,5 +207,8 @@ def run_capture_workflow():
     """Full acquisition workflow. Returns (xray_paths, clinical_text, sex, age_raw)."""
     setup_inteliviewer()
     sex, age_raw = capture_demographics()
+    capture_accession_number()
+    pyautogui.press('o')
     xray_paths, clinical_text = acquire_images()
+    pyautogui.press('o')
     return xray_paths, clinical_text, sex, age_raw

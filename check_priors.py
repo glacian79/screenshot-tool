@@ -62,23 +62,26 @@ def check_priors():
         win32gui.EnumWindows(cb, None)
         return result[0] if result else None
 
-    # Focus IntelliViewer and open priors window
-    pyautogui.click(80, 300)
+    # Close priors window if already open
+    existing = _find_search_tool()
+    if existing:
+        print("Closing existing priors window...")
+        win32gui.SetForegroundWindow(existing)
+        time.sleep(0.2)
+        pyautogui.click(1923, 2032)
+        time.sleep(0.5)
+
+    # Focus IntelliViewer and open fresh priors window
+    pyautogui.click(620, 500)
     time.sleep(0.3)
+    pyautogui.press("v")
+    time.sleep(1.0)
 
     hwnd = _find_search_tool()
-    if hwnd:
-        print(f"Priors window already open: '{win32gui.GetWindowText(hwnd)}'")
-    else:
-        before = _get_visible_hwnds()
-        pyautogui.press("v")
-        time.sleep(1.0)
-        new_hwnds = _get_visible_hwnds() - before
-        if not new_hwnds:
-            print("No new window detected after pressing 'v'")
-            return
-        hwnd = next(iter(new_hwnds))
-        print(f"Found priors window: '{win32gui.GetWindowText(hwnd)}'")
+    if not hwnd:
+        print("No priors window detected after pressing 'v'")
+        return
+    print(f"Found priors window: '{win32gui.GetWindowText(hwnd)}'")
 
     # Position and size the window
     left, top, width, height = WINDOW_POS
@@ -86,14 +89,13 @@ def check_priors():
     time.sleep(0.3)
 
     _focus_window(hwnd)
+    pyautogui.press("down")
+    time.sleep(0.5)
 
     prev_img = None
     most_recent_prior = None
 
     for i in range(1, 5):
-        pyautogui.press("down")
-        time.sleep(0.3)
-
         img = ImageGrab.grab(bbox=OCR_REGION, all_screens=True)
 
         if prev_img is not None and _images_identical(img, prev_img):
@@ -129,9 +131,11 @@ def check_priors():
             most_recent_prior = full_text
 
         prev_img = img
+        _focus_window(hwnd)
+        pyautogui.press("down")
+        time.sleep(0.5)
 
-    _focus_window(hwnd)
-    pyautogui.hotkey("alt", "f4")
+    pyautogui.click(1923, 2032)
     time.sleep(0.3)
     print("Done.")
     return most_recent_prior

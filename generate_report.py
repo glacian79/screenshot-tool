@@ -82,7 +82,7 @@ def _is_mostly_white(path, threshold=220, white_fraction=0.75):
     """Return True if more than white_fraction of pixels are brighter than threshold."""
     from PIL import Image as _Image
     img = _Image.open(path).convert("L")
-    pixels = img.getdata()
+    pixels = img.get_flattened_data()
     white = sum(1 for p in pixels if p > threshold)
     return white / len(pixels) > white_fraction
 
@@ -168,8 +168,11 @@ def generate_radiology_report():
         f"{prior_section}"
         f"Clinical Information:\n{clinical_text}\n\n"
         "Generate a brief radiology report."
+        "Use Australian/British spelling"
         "Use the headings CLINICAL INFORMATION and FINDINGS. Do not add * and # to delineate headings."
         "ignore technical problems.  Ignore the abscence of a lateral projection."
+        "If multiple xrays are being reported in the one report separate the xrays under FINDINGS with Xray <body part>.  For example: X-ray Chest: <findings> \n\n X-ray hand: <findings>"
+        "If the title referes to only a single region, do not add the region again under FINDINGS."
         "Write in short paragraphs."
     )
     content.append({"type": "text", "text": llm_text})
@@ -183,12 +186,14 @@ def generate_radiology_report():
         "Never enumerate individual negative findings — if something is normal, say so in a single word or short phrase (e.g. 'Lungs clear', 'No fracture identified'). "
         "Only mention a structure if it is abnormal or directly relevant to the clinical question. "
         "Do not list what was not seen."
-        "Do not comment on central venous catheters."
+        "Do not comment on any line or catheter unless it was mentioned in the prior report."
         "If the heart size is normal, say \"cardiomediastinal silhouette outlines normally\""
         "Do not comment on what projections were provided."
         "Unless you are very sure there is an abnormality, assume it is normal."
+        "Do not comment on how the ossifications centres correllate with age unless specifically instructed."
+        "If you are reporting an abdomen x-ray, on the topic of faecal loading say: There is some faecal material in the colon, within normal limits."
         "If you are reporting a pelvis or hip x-ray for query fracture use the report: No fracture or dislocation.  The pelvic viscera outline normally"
-        "If a prior report is provided and is the same type of examination, begin the FINDINGS section with 'Images are compared with the prior examination on [date from prior].' "
+        "If a prior report is provided and is the same type of examination, begin the FINDINGS section with 'Images are compared with the prior examination on [date from prior].\n\n' "
         "If no prior report is provided, or it is not the same type of examination, begin the FINDINGS section with 'No prior x-rays available for comparison.'"
     )
 
@@ -234,7 +239,9 @@ def generate_radiology_report():
         f.write(report)
     print(f"\nReport saved: {report_filepath}")
 
-    archive_dir = os.path.join(screenshots_dir, "archive", timestamp)
+    safe_title = re.sub(r'[\\/:*?"<>|]', '', title).strip() if title else ""
+    archive_name = f"{timestamp}_{safe_title}" if safe_title else timestamp
+    archive_dir = os.path.join(screenshots_dir, "archive", archive_name)
     os.makedirs(archive_dir, exist_ok=True)
     for fname in os.listdir(screenshots_dir):
         src = os.path.join(screenshots_dir, fname)
