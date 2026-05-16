@@ -57,23 +57,39 @@ def inject_demographics(report_text, sex, age_raw):
     return injected
 
 
+_MODALITY_WORDS = re.compile(r'\b(x-?ray|xray|cr|xr|right|left|bilateral|and|or|series|views?)\b', re.IGNORECASE)
+
+
+def _title_keywords(text):
+    """Strip modality words and return the remaining unique lowercase words (length >= 2)."""
+    cleaned = _MODALITY_WORDS.sub('', text)
+    return {w.lower() for w in re.split(r'\W+', cleaned) if len(w) >= 2}
+
+
 def find_matching_prior(title):
-    """Search prior*.txt files for the one whose first all-caps line matches title."""
+    """Search prior*.txt files for the one whose first all-caps line shares any keyword with title."""
     if not title:
         return None
+    current_keywords = _title_keywords(title)
+    if not current_keywords:
+        return None
+    print(f"Matching priors — current title: '{title}' → keywords: {current_keywords}")
     screenshots_dir = os.path.join(os.path.expanduser("~"), "screenshots")
     import glob as _glob
     prior_files = sorted(_glob.glob(os.path.join(screenshots_dir, "prior*.txt")))
     for path in prior_files:
         with open(path, "r", encoding="utf-8") as f:
             text = f.read()
-        for line in text.splitlines():
-            line = line.strip()
-            if line and line == line.upper() and any(c.isalpha() for c in line):
-                if line.upper() == title.upper():
-                    print(f"Matching prior found: {os.path.basename(path)} — '{line}'")
-                    return text
-                break  # only check the first all-caps line per file
+        date_match = re.search(r'Examination date:\s*(.+)', text)
+        date_str = date_match.group(1).strip() if date_match else "unknown"
+        print(f"  {os.path.basename(path)}: date={date_str}")
+        title_match = re.search(r'Prior title:\s*(.+)', text)
+        prior_title_line = title_match.group(1).strip() if title_match else ""
+        prior_keywords = _title_keywords(prior_title_line)
+        print(f"    Comparing: {current_keywords} vs {prior_keywords}  (prior title: '{prior_title_line}')")
+        if current_keywords & prior_keywords:
+            print(f"    Match found: {os.path.basename(path)}")
+            return text
     print("No matching prior found")
     return None
 
@@ -163,7 +179,8 @@ def generate_radiology_report():
                 "data": image_data,
             },
         })
-    prior_section = f"Prior report:\n{prior_text}\n\n" if prior_text else ""
+    prior_for_llm = re.sub(r'(Prior title:|Prior accession number:).*\n?', '', prior_text) if prior_text else None
+    prior_section = f"Prior report:\n{prior_for_llm}\n\n" if prior_for_llm else ""
     llm_text = (
         f"{prior_section}"
         f"Clinical Information:\n{clinical_text}\n\n"

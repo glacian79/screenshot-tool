@@ -1,4 +1,5 @@
 import os
+import re
 import time
 
 import numpy as np
@@ -12,7 +13,7 @@ pytesseract.pytesseract.tesseract_cmd = r"C:\Users\john.grieve\AppData\Local\Pro
 
 SCREENSHOTS_DIR = os.path.join(os.path.expanduser("~"), "screenshots")
 OCR_REGION     = (1780, 620, 2540, 2000)
-DATE_REGION    = (2320, 505, 2522, 524)
+INFO_REGION    = (1910, 460, 2526, 628)
 WINDOW_POS     = (1300, 290, 1250, 1770)   # left, top, width, height
 
 
@@ -111,15 +112,34 @@ def check_priors():
 
         text = pytesseract.image_to_string(img_masked)
 
-        # Capture and OCR the exam date
-        date_img = ImageGrab.grab(bbox=DATE_REGION, all_screens=True)
-        date_scaled = date_img.resize((date_img.width * scale, date_img.height * scale), Image.LANCZOS)
-        date_masked = _mask_background_for_ocr(date_scaled, bg_hex="333333")
-        date_masked.save(os.path.join(SCREENSHOTS_DIR, f"prior{i}_date_masked.png"))
-        date_text = pytesseract.image_to_string(date_masked, config="--psm 7").strip()
-        print(f"  Date: {date_text}")
+        # Capture the info panel: prior title, date, and accession number
+        info_img = ImageGrab.grab(bbox=INFO_REGION, all_screens=True)
+        info_scaled = info_img.resize((info_img.width * scale, info_img.height * scale), Image.LANCZOS)
+        info_masked = _mask_background_for_ocr(info_scaled, bg_hex="333333")
+        info_masked.save(os.path.join(SCREENSHOTS_DIR, f"prior{i}_info_masked.png"))
+        info_text = pytesseract.image_to_string(info_masked, config="--psm 6")
 
-        full_text = f"Examination date: {date_text}\n\n{text}" if date_text else text
+        date_match = re.search(r'(\d{1,2}\s+\w+\s+\d{4})', info_text)
+        acc_match  = re.search(r'Accession Number:\s*(\S+)', info_text, re.IGNORECASE)
+        first_line = next((l.strip() for l in info_text.splitlines()
+                           if l.strip() and 'refresh' not in l.lower()), "")
+        prior_title = re.sub(r'\d{1,2}\s+\w+\s+\d{4}.*', '', first_line).strip()
+
+        date_text  = date_match.group(1) if date_match else ""
+        acc_text   = acc_match.group(1)  if acc_match  else ""
+        print(f"  Prior title: {prior_title}")
+        print(f"  Date: {date_text}")
+        print(f"  Prior accession: {acc_text}")
+
+        header_parts = []
+        if prior_title:
+            header_parts.append(f"Prior title: {prior_title}")
+        if date_text:
+            header_parts.append(f"Examination date: {date_text}")
+        if acc_text:
+            header_parts.append(f"Prior accession number: {acc_text}")
+        header = "\n".join(header_parts)
+        full_text = f"{header}\n\n{text}" if header else text
 
         txt_path = os.path.join(SCREENSHOTS_DIR, f"prior{i}.txt")
         with open(txt_path, "w", encoding="utf-8") as f:
